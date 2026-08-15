@@ -30,7 +30,6 @@
 
 #include <algorithm>
 #include <array>
-#include <string>
 #include <string_view>
 
 namespace cryptonote
@@ -50,6 +49,15 @@ namespace rpc
       "start_mining",
       "stop_mining"
     }};
+
+    constexpr bool blocked_in_restricted_mode_sorted() noexcept
+    {
+      for (std::size_t i = 1; i < blocked_in_restricted_mode.size(); ++i)
+        if (!(blocked_in_restricted_mode[i - 1] < blocked_in_restricted_mode[i]))
+          return false;
+      return true;
+    }
+    static_assert(blocked_in_restricted_mode_sorted(), "ZMQ restricted-method map is not properly sorted");
   }
 
   bool is_blocked_in_restricted_mode(const std::string_view method) noexcept
@@ -59,17 +67,6 @@ namespace rpc
       blocked_in_restricted_mode.end(),
       method
     );
-  }
-
-  void check_blocked_methods_sorted()
-  {
-    const auto last =
-      std::is_sorted_until(blocked_in_restricted_mode.begin(), blocked_in_restricted_mode.end());
-
-    if (last != blocked_in_restricted_mode.end())
-      throw std::logic_error{
-        std::string{"ZMQ restricted-method map is not properly sorted, see "} + std::string{*last}
-      };
   }
 } // rpc
 } // cryptonote

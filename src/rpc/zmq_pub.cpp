@@ -144,12 +144,23 @@ namespace
     }
   };
 
-  template<typename T, std::size_t N>
-  void verify_sorted(const std::array<context<T>, N>& elems, const char* name)
+  constexpr bool less_cstr(const char* lhs, const char* rhs) noexcept
   {
-    auto unsorted = std::is_sorted_until(elems.begin(), elems.end());
-    if (unsorted != elems.end())
-      throw std::logic_error{name + std::string{" array is not properly sorted, see: "} + unsorted->name};
+    while (*lhs != '\0' && *lhs == *rhs)
+    {
+      ++lhs;
+      ++rhs;
+    }
+    return static_cast<unsigned char>(*lhs) < static_cast<unsigned char>(*rhs);
+  }
+
+  template<typename T, std::size_t N>
+  constexpr bool contexts_sorted(const std::array<context<T>, N>& elems) noexcept
+  {
+    for (std::size_t i = 1; i < N; ++i)
+      if (!less_cstr(elems[i - 1].name, elems[i].name))
+        return false;
+    return true;
   }
 
   void write_header(epee::byte_stream& buf, const boost::string_ref name)
@@ -305,6 +316,10 @@ namespace
     {u8"json-minimal-txpool_add", minimal_txpool_format<wire::json>}
   }};
 
+  static_assert(contexts_sorted(chain_contexts), "chain_contexts array is not properly sorted");
+  static_assert(contexts_sorted(miner_contexts), "miner_contexts array is not properly sorted");
+  static_assert(contexts_sorted(txpool_contexts), "txpool_contexts array is not properly sorted");
+
   template<typename T, std::size_t N>
   epee::span<const context<T>> get_range(const std::array<context<T>, N>& contexts, const boost::string_ref value)
   {
@@ -433,10 +448,6 @@ zmq_pub::zmq_pub(void* context)
 {
   if (!context)
     throw std::logic_error{"ZMQ context cannot be NULL"};
-
-  verify_sorted(chain_contexts, "chain_contexts");
-  verify_sorted(miner_contexts, "miner_contexts");
-  verify_sorted(txpool_contexts, "txpool_contexts");
 
   relay_.reset(zmq_socket(context, ZMQ_PAIR));
   if (!relay_)

@@ -38,8 +38,5 @@ namespace rpc
   //! Returns true when `method` must be rejected while ZMQ RPC runs in
   //! restricted mode. Keep this list in sync with daemon RPC method
   bool is_blocked_in_restricted_mode(std::string_view method) noexcept;
-
-  //! Throws std::logic_error if the internal method table is not sorted.
-  void check_blocked_methods_sorted();
 } // rpc
 } // cryptonote

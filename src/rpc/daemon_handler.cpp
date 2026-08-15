@@ -32,7 +32,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <stdexcept>
 
 #include <boost/uuid/nil_generator.hpp>
 #include <boost/utility/string_ref.hpp>
@@ -67,14 +66,19 @@ namespace rpc
       handler_function* call;
     };
 
-    bool operator<(const handler_map& lhs, const handler_map& rhs) noexcept
-    {
-      return std::strcmp(lhs.method_name, rhs.method_name) < 0;
-    }
-
     bool operator<(const handler_map& lhs, const std::string& rhs) noexcept
     {
       return std::strcmp(lhs.method_name, rhs.c_str()) < 0;
+    }
+
+    constexpr bool less_cstr(const char* lhs, const char* rhs) noexcept
+    {
+      while (*lhs != '\0' && *lhs == *rhs)
+      {
+        ++lhs;
+        ++rhs;
+      }
+      return static_cast<unsigned char>(*lhs) < static_cast<unsigned char>(*rhs);
     }
 
     template<typename Message>
@@ -118,16 +122,20 @@ namespace rpc
       {u8"start_mining", handle_message<StartMining>},
       {u8"stop_mining", handle_message<StopMining>}
     };
+
+    constexpr bool handlers_sorted() noexcept
+    {
+      for (std::size_t i = 1; i < sizeof(handlers) / sizeof(handlers[0]); ++i)
+        if (!less_cstr(handlers[i - 1].method_name, handlers[i].method_name))
+          return false;
+      return true;
+    }
+    static_assert(handlers_sorted(), "ZMQ JSON-RPC handlers map is not properly sorted");
   } // anonymous
 
   DaemonHandler::DaemonHandler(cryptonote::core& c, t_p2p& p2p, bool restricted)
     : m_core(c), m_p2p(p2p), m_restricted(restricted)
   {
-    const auto last_sorted = std::is_sorted_until(std::begin(handlers), std::end(handlers));
-    if (last_sorted != std::end(handlers))
-      throw std::logic_error{std::string{"ZMQ JSON-RPC handlers map is not properly sorted, see "} + last_sorted->method_name};
-
-    check_blocked_methods_sorted();
   }
 
   void DaemonHandler::handle(const GetHeight::Request& req, GetHeight::Response& res)
