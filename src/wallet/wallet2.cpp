@@ -6919,6 +6919,12 @@ void wallet2::store_to(const std::string &path, const epee::wipeable_string &pas
       }
     }
   }
+  else if (!same_file && !had_old_wallet_files && m_nettype != MAINNET)
+  {
+    const std::string address_file = m_wallet_file + ".address.txt";
+    bool r = save_to_file(address_file, m_account.get_public_address_str(m_nettype), true);
+    THROW_WALLET_EXCEPTION_IF(!r, error::file_save_error, m_wallet_file);
+  }
 
   // Save cache to new file. If storing to the same file, the temp path has the ".new" extension
 #ifdef WIN32

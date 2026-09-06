@@ -1620,6 +1620,25 @@ bool WalletImpl::hasMultisigPartialKeyImages() const {
     return false;
 }
 
+bool WalletImpl::getMultisigSeed(string &seed, const string &passphrase) const {
+    try {
+        clearStatus();
+        checkMultisigWalletReady(m_wallet);
+
+        epee::wipeable_string wipeable_seed;
+        if (!m_wallet->get_multisig_seed(wipeable_seed, epee::wipeable_string(passphrase))) {
+            throw runtime_error("failed to get multisig seed");
+        }
+        seed = string(wipeable_seed.data(), wipeable_seed.size());
+        return true;
+    } catch (const exception& e) {
+        LOG_ERROR("Error on getting multisig seed: " << e.what());
+        setStatusError(string(tr("Failed to get multisig seed: ")) + e.what());
+    }
+
+    return false;
+}
+
 PendingTransaction* WalletImpl::restoreMultisigTransaction(const string& signData) {
     try {
         clearStatus();

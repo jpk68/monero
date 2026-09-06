@@ -826,6 +826,14 @@ struct Wallet
     virtual bool hasMultisigPartialKeyImages() const = 0;
 
     /**
+     * @brief getMultisigSeed - returns multisig seed encoding this participant's multisig account private keys
+     * @param seed - output parameter for the seed
+     * @param passphrase - passphrase to encrypt the seed with (may be empty)
+     * @return true if success
+     */
+    virtual bool getMultisigSeed(std::string &seed, const std::string &passphrase = "") const = 0;
+
+    /**
      * @brief restoreMultisigTransaction creates PendingTransaction from signData
      * @param signData encrypted unsigned transaction. Obtained with PendingTransaction::multisigSignData
      * @return PendingTransaction
