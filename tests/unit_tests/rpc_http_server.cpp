@@ -246,6 +246,26 @@ TEST(rpc_http_server, rejects_malformed_requests)
     }
 }
 
+TEST(rpc_http_server, rejects_what_cannot_start_a_request)
+{
+    // the start of a TLS ClientHello, which a client autodetecting SSL sends first; the old
+    // server closed on it, and that close is what makes the client retry in plaintext
+    const std::string client_hello{"\x16\x03\x01\x05\xdc\x01\x00\x05\xd8\x03\x03", 11};
+    expect_rejected(feed(client_hello), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed("\r\n" + client_hello), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed(" GET /echo HTTP/1.1\r\nHost: x\r\n\r\n"), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed("G@T"), "HTTP/1.1 400 Bad request\r\n");
+
+    // a method still being read is waited for
+    const auto partial = feed("GE");
+    ASSERT_EQ(1u, partial.results.size());
+    EXPECT_TRUE(partial.results[0]);
+    EXPECT_TRUE(partial.sent.empty());
+
+    const auto split = feed_chunks({"GE", "T /echo HTTP/1.1\r\nHost: x\r\n\r\n"});
+    EXPECT_EQ(1u, split.requests.size());
+}
+
 TEST(rpc_http_server, leading_empty_lines)
 {
     const auto one = feed("\r\n" + get_echo);

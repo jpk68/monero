@@ -264,6 +264,13 @@ bool http_connection::process(std::size_t& consumed)
                     pending.remove_prefix(net::http::crlf.size());
                 }
                 if (pending.empty() || pending == "\r") return true;
+
+                // RFC 9112 3: a request line starts with a method token. Bytes that can't be
+                // one (a TLS ClientHello's 0x16, say) are answered at once instead of buffered
+                // up to the header limit: a client autodetecting SSL needs that close to fall
+                // back to plaintext, as it did with the old server.
+                const std::size_t method_end = std::min(pending.find(' '), pending.size());
+                if (!net::http::is_token(pending.substr(0, method_end))) return reject(400);
             }
 
             // resume search, allowing for a terminator split across reads
