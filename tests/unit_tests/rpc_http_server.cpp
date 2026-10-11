@@ -153,7 +153,8 @@ TEST(rpc_http_server, body_with_content_length)
     EXPECT_EQ("0123456789", c.requests[0].body);
     EXPECT_TRUE(starts_with(c.sent, "HTTP/1.1 200 OK\r\n"));
     EXPECT_TRUE(contains(c.sent, "\r\nContent-Type: text/plain\r\n"));
-    EXPECT_FALSE(contains(c.sent, "Connection: close"));
+    // HTTP/1.1 persists by default and is told nothing
+    EXPECT_FALSE(contains(c.sent, "Connection:"));
     EXPECT_EQ("\r\n\r\n0123456789", c.sent.substr(c.sent.size() - 14));
 }
 
@@ -333,10 +334,25 @@ TEST(rpc_http_server, connection_options)
     ASSERT_EQ(1u, http10.results.size());
     EXPECT_FALSE(http10.results[0]);
     EXPECT_EQ(1u, http10.requests.size());
+    EXPECT_TRUE(contains(http10.sent, "\r\nConnection: close\r\n"));
+    EXPECT_FALSE(contains(http10.sent, "keep-alive"));
 
-    const auto http10_kept = feed("GET /echo HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n");
+    // and is told so when it is, or it assumes the server will close
+    const auto http10_kept =
+        feed("GET /echo HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n" + get_echo);
     ASSERT_EQ(1u, http10_kept.results.size());
     EXPECT_TRUE(http10_kept.results[0]);
+    EXPECT_EQ(2u, http10_kept.requests.size());
+    const std::string_view first{http10_kept.sent.data(), http10_kept.sent.find("HTTP/1.1 ", 1)};
+    EXPECT_TRUE(contains(first, "\r\nConnection: keep-alive\r\n")) << first;
+    EXPECT_FALSE(contains(first, "Connection: close"));
+
+    // a 500 closes, and says only that
+    const auto http10_failed = feed("GET /fail HTTP/1.0\r\nConnection: keep-alive\r\n\r\n");
+    ASSERT_EQ(1u, http10_failed.results.size());
+    EXPECT_FALSE(http10_failed.results[0]);
+    EXPECT_TRUE(contains(http10_failed.sent, "\r\nConnection: close\r\n"));
+    EXPECT_FALSE(contains(http10_failed.sent, "keep-alive"));
 }
 
 TEST(rpc_http_server, host_required)

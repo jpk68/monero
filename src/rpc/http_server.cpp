@@ -342,6 +342,9 @@ bool http_connection::process(std::size_t& consumed)
 
         // every internal error closes the connection
         if (response.code == 500) keep_alive = false;
+        // RFC 9112 9.3: an HTTP/1.0 client assumes close unless told otherwise
+        if (keep_alive && line.version == "HTTP/1.0")
+            extra_fields.append("Connection: keep-alive\r\n");
         if (!send(std::move(response), keep_alive, head, extra_fields)) return false;
 
         consumed += request_size_;
