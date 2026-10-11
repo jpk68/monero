@@ -177,10 +177,10 @@ bool server_config::is_host_limit(const epee::net_utils::network_address& addres
     if (max_connections <= connection_count) return true;
 
     const auto it = connections.find(key);
-    if (it == connections.end()) return false;
+    const std::size_t open = it == connections.end() ? 0 : it->second;
 
     const bool is_private = address.is_loopback() || address.is_local();
-    return (is_private ? max_private_ip_connections : max_public_ip_connections) <= it->second;
+    return (is_private ? max_private_ip_connections : max_public_ip_connections) <= open;
 }
 
 http_connection::http_connection(epee::net_utils::i_service_endpoint* const endpoint,
@@ -264,6 +264,13 @@ bool http_connection::process(std::size_t& consumed)
                     pending.remove_prefix(net::http::crlf.size());
                 }
                 if (pending.empty() || pending == "\r") return true;
+
+                // RFC 9112 3: a request line starts with a method token. Bytes that can't be
+                // one (a TLS ClientHello's 0x16, say) are answered at once instead of buffered
+                // up to the header limit: a client autodetecting SSL needs that close to fall
+                // back to plaintext, as it did with the old server.
+                const std::size_t method_end = std::min(pending.find(' '), pending.size());
+                if (!net::http::is_token(pending.substr(0, method_end))) return reject(400);
             }
 
             // resume search, allowing for a terminator split across reads
@@ -317,6 +324,7 @@ bool http_connection::process(std::size_t& consumed)
             // answered here for every target and without auth, so CORS preflights never reach a
             // handler
             response = http_response{200};
+            extra_fields.append(allow_field); // RFC 9110 9.3.7
         }
         else if (std::optional<http_response> digest = challenge(line, fields, extra_fields))
         {
@@ -342,6 +350,9 @@ bool http_connection::process(std::size_t& consumed)
 
         // every internal error closes the connection
         if (response.code == 500) keep_alive = false;
+        // RFC 9112 9.3: an HTTP/1.0 client assumes close unless told otherwise
+        if (keep_alive && line.version == "HTTP/1.0")
+            extra_fields.append("Connection: keep-alive\r\n");
         if (!send(std::move(response), keep_alive, head, extra_fields)) return false;
 
         consumed += request_size_;

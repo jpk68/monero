@@ -153,7 +153,8 @@ TEST(rpc_http_server, body_with_content_length)
     EXPECT_EQ("0123456789", c.requests[0].body);
     EXPECT_TRUE(starts_with(c.sent, "HTTP/1.1 200 OK\r\n"));
     EXPECT_TRUE(contains(c.sent, "\r\nContent-Type: text/plain\r\n"));
-    EXPECT_FALSE(contains(c.sent, "Connection: close"));
+    // HTTP/1.1 persists by default and is told nothing
+    EXPECT_FALSE(contains(c.sent, "Connection:"));
     EXPECT_EQ("\r\n\r\n0123456789", c.sent.substr(c.sent.size() - 14));
 }
 
@@ -237,11 +238,32 @@ TEST(rpc_http_server, rejects_malformed_requests)
           "GET /echo HTTP/1.1\r\nHost: x\r\nX: a\nContent-Length: 4\r\n\r\ntest",
           "GET /echo\r\nHost: x\r\n\r\n", "GET /echo HTTP/2.0\r\nHost: x\r\n\r\n",
           "\nGET /echo HTTP/1.1\r\nHost: x\r\n\r\n", "\r\n\nGET /echo HTTP/1.1\r\nHost: x\r\n\r\n",
-          "\rGET /echo HTTP/1.1\r\nHost: x\r\n\r\n"})
+          "\rGET /echo HTTP/1.1\r\nHost: x\r\n\r\n", "GET /echo HTTP/1.1\r\nHost: x\r\nX: a\x0b" "b\r\n\r\n",
+          "GET /echo HTTP/1.1\r\nHost: x\x7f\r\n\r\n"})
     {
         SCOPED_TRACE(request);
         expect_rejected(feed(request), "HTTP/1.1 400 Bad request\r\n");
     }
+}
+
+TEST(rpc_http_server, rejects_what_cannot_start_a_request)
+{
+    // the start of a TLS ClientHello, which a client autodetecting SSL sends first; the old
+    // server closed on it, and that close is what makes the client retry in plaintext
+    const std::string client_hello{"\x16\x03\x01\x05\xdc\x01\x00\x05\xd8\x03\x03", 11};
+    expect_rejected(feed(client_hello), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed("\r\n" + client_hello), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed(" GET /echo HTTP/1.1\r\nHost: x\r\n\r\n"), "HTTP/1.1 400 Bad request\r\n");
+    expect_rejected(feed("G@T"), "HTTP/1.1 400 Bad request\r\n");
+
+    // a method still being read is waited for
+    const auto partial = feed("GE");
+    ASSERT_EQ(1u, partial.results.size());
+    EXPECT_TRUE(partial.results[0]);
+    EXPECT_TRUE(partial.sent.empty());
+
+    const auto split = feed_chunks({"GE", "T /echo HTTP/1.1\r\nHost: x\r\n\r\n"});
+    EXPECT_EQ(1u, split.requests.size());
 }
 
 TEST(rpc_http_server, leading_empty_lines)
@@ -333,10 +355,25 @@ TEST(rpc_http_server, connection_options)
     ASSERT_EQ(1u, http10.results.size());
     EXPECT_FALSE(http10.results[0]);
     EXPECT_EQ(1u, http10.requests.size());
+    EXPECT_TRUE(contains(http10.sent, "\r\nConnection: close\r\n"));
+    EXPECT_FALSE(contains(http10.sent, "keep-alive"));
 
-    const auto http10_kept = feed("GET /echo HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n");
+    // and is told so when it is, or it assumes the server will close
+    const auto http10_kept =
+        feed("GET /echo HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n" + get_echo);
     ASSERT_EQ(1u, http10_kept.results.size());
     EXPECT_TRUE(http10_kept.results[0]);
+    EXPECT_EQ(2u, http10_kept.requests.size());
+    const std::string_view first{http10_kept.sent.data(), http10_kept.sent.find("HTTP/1.1 ", 1)};
+    EXPECT_TRUE(contains(first, "\r\nConnection: keep-alive\r\n")) << first;
+    EXPECT_FALSE(contains(first, "Connection: close"));
+
+    // a 500 closes, and says only that
+    const auto http10_failed = feed("GET /fail HTTP/1.0\r\nConnection: keep-alive\r\n\r\n");
+    ASSERT_EQ(1u, http10_failed.results.size());
+    EXPECT_FALSE(http10_failed.results[0]);
+    EXPECT_TRUE(contains(http10_failed.sent, "\r\nConnection: close\r\n"));
+    EXPECT_FALSE(contains(http10_failed.sent, "keep-alive"));
 }
 
 TEST(rpc_http_server, host_required)
@@ -377,6 +414,10 @@ TEST(rpc_http_server, options)
     EXPECT_TRUE(c.results[0]);
     EXPECT_TRUE(c.requests.empty());
     EXPECT_TRUE(starts_with(c.sent, "HTTP/1.1 200 OK\r\n"));
+    EXPECT_TRUE(contains(c.sent, "\r\nAllow: GET, HEAD, POST, OPTIONS\r\n"));
+
+    // unknown targets too: the answer is about the server
+    EXPECT_TRUE(contains(feed("OPTIONS /nope HTTP/1.1\r\nHost: x\r\n\r\n").sent, "\r\nAllow: "));
 }
 
 TEST(rpc_http_server, method_not_allowed)
@@ -571,6 +612,16 @@ TEST(rpc_http_server, cors)
     for (const capture& c : {feed_chunks({from_a}, origins({"https://b"})), feed(from_a),
                              feed_chunks({get_echo}, origins({"*"}))})
         EXPECT_FALSE(contains(c.sent, "Access-Control")) << c.sent;
+
+    // the echoed value can't carry a line break or any other control character
+    for (const std::string origin : {"https://a\nX-Injected: 1", "https://a\x01"})
+    {
+        const auto injected = feed_chunks(
+            {"GET /echo HTTP/1.1\r\nHost: x\r\nOrigin: " + origin + "\r\n\r\n"}, origins({"*"}));
+        EXPECT_TRUE(starts_with(injected.sent, "HTTP/1.1 400 Bad request\r\n")) << origin;
+        EXPECT_FALSE(contains(injected.sent, "Access-Control")) << origin;
+        EXPECT_FALSE(contains(injected.sent, "X-Injected")) << origin;
+    }
 }
 
 namespace
@@ -678,6 +729,14 @@ TEST(rpc_http_server, host_limit)
 
     config.connection_count = 3;
     EXPECT_TRUE(config.is_host_limit(make_ipv6("2001:db8:1::1")));
+
+    // a limit of zero lets nothing through, not one
+    rpc::server_config none;
+    none.max_public_ip_connections = 0;
+    EXPECT_TRUE(none.is_host_limit(public_a));
+    EXPECT_FALSE(none.is_host_limit(loopback));
+    none.max_private_ip_connections = 0;
+    EXPECT_TRUE(none.is_host_limit(loopback));
 }
 
 TEST(rpc_http_server, server_options_checked)

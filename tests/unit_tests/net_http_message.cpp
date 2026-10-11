@@ -24,6 +24,13 @@ static_assert(!net::http::is_token(" Host"));
 static_assert(!net::http::is_token("Host "));
 static_assert(!net::http::is_token("Ho@st"));
 
+static_assert(!net::http::has_control_chars("a\tb c"));
+static_assert(!net::http::has_control_chars("\xC9\xE9")); // obs-text
+static_assert(net::http::has_control_chars("a\x0b"));
+static_assert(net::http::has_control_chars("a\x1f"));
+static_assert(net::http::has_control_chars("\x7f"));
+static_assert(net::http::has_control_chars(std::string_view{"a\0b", 3}));
+
 static_assert(net::http::is_request_target("/json_rpc?a=b%20c"));
 static_assert(!net::http::is_request_target(""));
 static_assert(!net::http::is_request_target("/a\tb"));
@@ -161,7 +168,8 @@ TEST(net_http, parse_header_fields)
     for (const std::string_view bad :
          {"Host : example.com", " Content-Length: 1", "\tContent-Length: 1", "Bad Header",
           "Host example.com", "GET / HTTP/1.1", ": value", "Host: example.com\r\n\r\n",
-          "Host: a\rb", "Host: a\nContent-Length: 4"})
+          "Host: a\rb", "Host: a\nContent-Length: 4", "Host: a\x01" "b", "Host: a\x0b", "Host: a\x1f",
+          "Host: a\x7f"})
     {
         EXPECT_FALSE(parse_fields(bad, fields)) << "accepted: " << bad;
     }
@@ -253,7 +261,8 @@ TEST(net_http, write_response_header)
 
     // a content type that would inject header lines is dropped
     for (const std::string_view bad : {std::string_view{"text/plain\r\nX-Injected: 1"},
-                                       std::string_view{"a\nb"}, std::string_view{"a\0b", 3}})
+                                       std::string_view{"a\nb"}, std::string_view{"a\0b", 3},
+                                       std::string_view{"text/plain\x7f"}, std::string_view{"a\x0c" "b"}})
     {
         const std::string head = net::http::write_response_header(200, 0, bad, true);
         EXPECT_EQ(std::string::npos, head.find("Content-Type:"));
