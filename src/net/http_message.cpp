@@ -82,8 +82,7 @@ bool parse_header_fields(std::string_view fields, header_fields& out)
 
         // RFC 9112 5.1 and 5.2: no whitespace around the name, which also rules out obs-fold
         if (!is_token(name)) return false;
-        // RFC 9110 5.5
-        if (value.find_first_of(invalid_value_chars) != std::string_view::npos) return false;
+        if (has_control_chars(value)) return false;
 
         if (iequals(name, "Connection"))
         {
@@ -169,10 +168,8 @@ std::string write_response_header(const unsigned int code, const std::size_t con
         .append(crlf);
 
     // dropped rather than allowed to inject header lines
-    const bool valid_type =
-        !content_type.empty() &&
-        content_type.find_first_of(invalid_value_chars) == std::string_view::npos;
-    if (valid_type) head.append("Content-Type: ").append(content_type).append(crlf);
+    if (!content_type.empty() && !has_control_chars(content_type))
+        head.append("Content-Type: ").append(content_type).append(crlf);
 
     head.append("Last-Modified: ").append(date.data(), date_size).append(crlf);
     head.append("Accept-Ranges: bytes\r\n");

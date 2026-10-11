@@ -238,7 +238,8 @@ TEST(rpc_http_server, rejects_malformed_requests)
           "GET /echo HTTP/1.1\r\nHost: x\r\nX: a\nContent-Length: 4\r\n\r\ntest",
           "GET /echo\r\nHost: x\r\n\r\n", "GET /echo HTTP/2.0\r\nHost: x\r\n\r\n",
           "\nGET /echo HTTP/1.1\r\nHost: x\r\n\r\n", "\r\n\nGET /echo HTTP/1.1\r\nHost: x\r\n\r\n",
-          "\rGET /echo HTTP/1.1\r\nHost: x\r\n\r\n"})
+          "\rGET /echo HTTP/1.1\r\nHost: x\r\n\r\n", "GET /echo HTTP/1.1\r\nHost: x\r\nX: a\x0b" "b\r\n\r\n",
+          "GET /echo HTTP/1.1\r\nHost: x\x7f\r\n\r\n"})
     {
         SCOPED_TRACE(request);
         expect_rejected(feed(request), "HTTP/1.1 400 Bad request\r\n");
@@ -587,6 +588,16 @@ TEST(rpc_http_server, cors)
     for (const capture& c : {feed_chunks({from_a}, origins({"https://b"})), feed(from_a),
                              feed_chunks({get_echo}, origins({"*"}))})
         EXPECT_FALSE(contains(c.sent, "Access-Control")) << c.sent;
+
+    // the echoed value can't carry a line break or any other control character
+    for (const std::string origin : {"https://a\nX-Injected: 1", "https://a\x01"})
+    {
+        const auto injected = feed_chunks(
+            {"GET /echo HTTP/1.1\r\nHost: x\r\nOrigin: " + origin + "\r\n\r\n"}, origins({"*"}));
+        EXPECT_TRUE(starts_with(injected.sent, "HTTP/1.1 400 Bad request\r\n")) << origin;
+        EXPECT_FALSE(contains(injected.sent, "Access-Control")) << origin;
+        EXPECT_FALSE(contains(injected.sent, "X-Injected")) << origin;
+    }
 }
 
 namespace

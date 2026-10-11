@@ -41,7 +41,6 @@ constexpr const std::string_view crlf = "\r\n";
 constexpr const std::string_view header_end = "\r\n\r\n";
 constexpr const std::string_view whitespace = " \t";
 constexpr const std::string_view token_symbols = "!#$%&'*+-.^_`|~";
-constexpr const std::string_view invalid_value_chars{"\r\n\0", 3};
 
 struct request_line
 {
@@ -89,6 +88,17 @@ constexpr bool is_token(const std::string_view s) noexcept
         if (!alnum && token_symbols.find(c) == std::string_view::npos) return false;
     }
     return true;
+}
+
+// RFC 9110 5.5: a field value has no control character other than HTAB; obs-text is fine
+constexpr bool has_control_chars(const std::string_view s) noexcept
+{
+    for (const char c : s)
+    {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if ((u < 0x20 && c != '\t') || u == 0x7F) return true;
+    }
+    return false;
 }
 
 // Rejects whitespace, control characters and DEL; percent-encoding is left to the handler
