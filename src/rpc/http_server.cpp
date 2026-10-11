@@ -177,10 +177,10 @@ bool server_config::is_host_limit(const epee::net_utils::network_address& addres
     if (max_connections <= connection_count) return true;
 
     const auto it = connections.find(key);
-    if (it == connections.end()) return false;
+    const std::size_t open = it == connections.end() ? 0 : it->second;
 
     const bool is_private = address.is_loopback() || address.is_local();
-    return (is_private ? max_private_ip_connections : max_public_ip_connections) <= it->second;
+    return (is_private ? max_private_ip_connections : max_public_ip_connections) <= open;
 }
 
 http_connection::http_connection(epee::net_utils::i_service_endpoint* const endpoint,

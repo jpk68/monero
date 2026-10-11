@@ -705,6 +705,14 @@ TEST(rpc_http_server, host_limit)
 
     config.connection_count = 3;
     EXPECT_TRUE(config.is_host_limit(make_ipv6("2001:db8:1::1")));
+
+    // a limit of zero lets nothing through, not one
+    rpc::server_config none;
+    none.max_public_ip_connections = 0;
+    EXPECT_TRUE(none.is_host_limit(public_a));
+    EXPECT_FALSE(none.is_host_limit(loopback));
+    none.max_private_ip_connections = 0;
+    EXPECT_TRUE(none.is_host_limit(loopback));
 }
 
 TEST(rpc_http_server, server_options_checked)
