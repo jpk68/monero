@@ -61,6 +61,7 @@ using namespace epee;
 #include "rpc/core_rpc_server_commands_defs.h"
 #include "rpc/core_rpc_server_error_codes.h"
 #include "misc_language.h"
+#include "scope_guard.h"
 #include "cryptonote_basic/cryptonote_basic_impl.h"
 #include "multisig/multisig.h"
 #include "multisig/multisig_account.h"
