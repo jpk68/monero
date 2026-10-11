@@ -394,6 +394,10 @@ TEST(rpc_http_server, options)
     EXPECT_TRUE(c.results[0]);
     EXPECT_TRUE(c.requests.empty());
     EXPECT_TRUE(starts_with(c.sent, "HTTP/1.1 200 OK\r\n"));
+    EXPECT_TRUE(contains(c.sent, "\r\nAllow: GET, HEAD, POST, OPTIONS\r\n"));
+
+    // unknown targets too: the answer is about the server
+    EXPECT_TRUE(contains(feed("OPTIONS /nope HTTP/1.1\r\nHost: x\r\n\r\n").sent, "\r\nAllow: "));
 }
 
 TEST(rpc_http_server, method_not_allowed)

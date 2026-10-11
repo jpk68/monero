@@ -317,6 +317,7 @@ bool http_connection::process(std::size_t& consumed)
             // answered here for every target and without auth, so CORS preflights never reach a
             // handler
             response = http_response{200};
+            extra_fields.append(allow_field); // RFC 9110 9.3.7
         }
         else if (std::optional<http_response> digest = challenge(line, fields, extra_fields))
         {
